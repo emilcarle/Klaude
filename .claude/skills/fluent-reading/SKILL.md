@@ -1,11 +1,56 @@
 ---
 name: fluent-reading
 description: Run an interactive reading comprehension session with a short target-language text followed by main-idea, detail, vocabulary-in-context, inference, and true/false questions. Triggered only when the learner types /fluent-reading. Presents the text, waits for the learner to read, then asks questions one at a time with immediate feedback, and optionally adds new vocabulary to the spaced-repetition queue.
-allowed-tools: Read, Write, Bash
+allowed-tools: Read, Write, Bash, Agent
 disable-model-invocation: true
 ---
 
 # Reading Comprehension Session
+
+## Session Rules (apply to every turn of this skill)
+
+**Language: target language only.** From the greeting to the closing summary, speak the learner's target language (`learner.target_language`). That covers instructions, exercise prompts, feedback, explanations, transitions and the summary. The templates in this file are written in English so they're easy to read. Render them in the target language. Exceptions:
+- Source sentences in translation exercises (native → target) stay in the native language.
+- If the learner asks for an explanation in English, give it briefly, then continue in the target language.
+- At A1–A2, keep the language simple and add a short native-language gloss in parentheses wherever an instruction might not be understood.
+
+Once the closing summary is shown, the session is over: switch back to English.
+
+**Feedback: as short as possible.** Every feedback message must be as brief as it can be while still getting the correction across:
+
+```markdown
+❌ 4/10
+- ~~Wir muss~~ → **Wir müssen** 🔴 *wir* → Pluralform
+- ~~zu nächsten Woche~~ → **auf nächste Woche** 🟡 verschieben auf + Akk.
+➡️ Wir müssen die Besprechung auf nächste Woche verschieben.
+```
+
+- **First line:** ✅ or ❌, the score out of 10, and at most 6 words of comment.
+- **One line per error:** wrong → right, a severity tag (🔴 critical / 🟡 moderate / 🟢 minor), and the reason in 8 words or fewer. Track the category (grammar, prepositions, …) for yourself; don't print it.
+- **➡️ Correct version:** add it only when there were errors. If the answer is fully correct, the first line is the whole feedback.
+- **Leave out** praise lists, headings, `---` separators, bonus tips and running-accuracy notes. One short ✅ note is allowed when the learner gets right a pattern they missed earlier.
+- **After a 🔴 error,** ask for a retype in one line (e.g. `🔁 Bitte abtippen.`).
+- **Longer explanations** only when the learner asks for one (*warum?*).
+- **Same message:** put the next exercise right after the feedback.
+
+**Speed: no bookkeeping mid-session.** Make no tool calls between the learner's answer and your feedback: no skill loads, no file reads or writes, no DB updates. The rules above are everything you need for feedback. Keep a running tally in your head of scores, errors (with category and severity), review results and new vocabulary. The conversation itself is the record. Everything is saved once, at the end, in the background (see "Session end" below).
+
+**Session end: summary first, then save in the background.**
+
+1. Show the closing summary right away, in the target language. Work out the streak yourself rather than waiting for the DB:
+   - last session yesterday → +1
+   - already practiced today → unchanged (minimum 1)
+   - otherwise → 1
+2. In the same response, start **one** background agent with the Agent tool, `subagent_type: "fork"`. A fork inherits this conversation, so it already has every answer. Tell it to:
+   - build the `update-db.py` payload as described in the `fluent-db-updater` skill and run it
+   - on a validation error, fix the payload and retry
+   - write the results file named in this skill, in English
+   - reply with one line, and never address the learner
+
+   Then end your turn without waiting for it.
+3. When the agent's completion notification arrives, reply with one short line in English (e.g. `💾 Progress saved.`), or tell the learner what failed.
+4. If the Agent tool isn't available, do the same steps yourself, after the summary has been shown.
+5. If the learner starts a new session before that notification arrives, wait for it before running `read-db.py`.
 
 ## Overview
 
@@ -107,7 +152,7 @@ c) {option 3}
 ```markdown
 ## Vraag 3: Vocabulaire
 
-In the text it says "{word/phrase}". What does this mean?
+{"In the text it says '{word/phrase}'. What does it mean?", in the target language}
 
 a) {meaning 1}
 b) {meaning 2}
@@ -134,19 +179,20 @@ c) {meaning 3}
 
 ### 6. Feedback per question
 
+Use the compact Session Rules format, in the target language:
+
 ```markdown
-{✅ or ❌}
-
-**Answer:** {correct_answer}
-
-**Explanation:** {why — reference the text}
-
-{If incorrect: **The text says:** "{relevant_quote}"}
-
-**Score: {X}/10**
-
----
+✅ {X}/10
 ```
+
+or, when wrong:
+
+```markdown
+❌ {X}/10 → **{correct_answer}**
+📄 "{short quote from the text that proves it}"
+```
+
+Then the next question, in the same message. Skip the long explanation; the quote does the work.
 
 ### 7. Vocabulary review
 
@@ -194,7 +240,7 @@ If yes, stage each word for `new_vocabulary[]` in the end-of-session DB update.
 
 ### 9. Update all databases
 
-Use the `fluent-db-updater` skill:
+Save in the background, following Session Rules → "Session end". The fork's payload:
 
 - `command_used: "/fluent-reading"`, `skills_practiced: ["reading"]`
 - `skill_scores.reading: {exercises: N, correct: count_right, time_minutes}`
@@ -202,7 +248,7 @@ Use the `fluent-db-updater` skill:
 - `new_vocabulary[]` — words the learner chose to save
 - `focus_next_session[]`
 
-Save to `/results/fluent-reading-session-{NNN}.md` — include the full text + Q&A for later analysis.
+Results file: `/results/fluent-reading-session-{NNN}.md`. Include the full text plus the Q&A for later analysis.
 
 ## Examples
 
@@ -227,7 +273,7 @@ Save to `/results/fluent-reading-session-{NNN}.md` — include the full text + Q
 >
 > ---
 >
-> Take your time. When you're done, type **"ready"**.
+> Neem de tijd. Typ **"klaar"** als je klaar bent.
 
 ### Example 2 — main-idea question on the above
 
@@ -241,17 +287,15 @@ Save to `/results/fluent-reading-session-{NNN}.md` — include the full text + Q
 
 Learner: "b"
 
-> ✅ Correct!
+> ✅ 10/10
 >
-> **Answer:** b) Lisa en Mohammad maken plannen voor een ontmoeting.
+> ## Vraag 2: Details
 >
-> **Explanation:** The email's core is the meetup plan — date, time, place, and activity. The weather is a secondary detail.
->
-> **Score: 10/10**
+> Waar en hoe laat spreken ze af?
 
 ## Critical Rules
 
-- **Wait for "ready"** before asking the first question. Rushing the reading step defeats the purpose.
+- **Wait for "ready"** (in the target language, e.g. "klaar" / "fertig") before asking the first question. Rushing the reading step defeats the purpose.
 - **One question at a time.** Multiple at once invites skimming.
 - **Ask questions in the target language** (at least from A2 up). Reading-comprehension checks should happen in the same language as the text.
 - **Quote the text** in explanations so the learner can trace the answer back to the source.

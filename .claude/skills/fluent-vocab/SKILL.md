@@ -1,11 +1,56 @@
 ---
 name: fluent-vocab
 description: Run an interactive vocabulary drill session with flashcard-style prompts, spaced repetition, and per-answer feedback. Triggered only when the learner types /fluent-vocab. Reads spaced-repetition / mistakes / mastery DBs to pick words, presents one word at a time, scores each answer, and calls fluent-db-updater at the end.
-allowed-tools: Read, Write, Bash
+allowed-tools: Read, Write, Bash, Agent
 disable-model-invocation: true
 ---
 
 # Vocabulary Drill Session
+
+## Session Rules (apply to every turn of this skill)
+
+**Language: target language only.** From the greeting to the closing summary, speak the learner's target language (`learner.target_language`). That covers instructions, exercise prompts, feedback, explanations, transitions and the summary. The templates in this file are written in English so they're easy to read. Render them in the target language. Exceptions:
+- Source sentences in translation exercises (native → target) stay in the native language.
+- If the learner asks for an explanation in English, give it briefly, then continue in the target language.
+- At A1–A2, keep the language simple and add a short native-language gloss in parentheses wherever an instruction might not be understood.
+
+Once the closing summary is shown, the session is over: switch back to English.
+
+**Feedback: as short as possible.** Every feedback message must be as brief as it can be while still getting the correction across:
+
+```markdown
+❌ 4/10
+- ~~Wir muss~~ → **Wir müssen** 🔴 *wir* → Pluralform
+- ~~zu nächsten Woche~~ → **auf nächste Woche** 🟡 verschieben auf + Akk.
+➡️ Wir müssen die Besprechung auf nächste Woche verschieben.
+```
+
+- **First line:** ✅ or ❌, the score out of 10, and at most 6 words of comment.
+- **One line per error:** wrong → right, a severity tag (🔴 critical / 🟡 moderate / 🟢 minor), and the reason in 8 words or fewer. Track the category (grammar, prepositions, …) for yourself; don't print it.
+- **➡️ Correct version:** add it only when there were errors. If the answer is fully correct, the first line is the whole feedback.
+- **Leave out** praise lists, headings, `---` separators, bonus tips and running-accuracy notes. One short ✅ note is allowed when the learner gets right a pattern they missed earlier.
+- **After a 🔴 error,** ask for a retype in one line (e.g. `🔁 Bitte abtippen.`).
+- **Longer explanations** only when the learner asks for one (*warum?*).
+- **Same message:** put the next exercise right after the feedback.
+
+**Speed: no bookkeeping mid-session.** Make no tool calls between the learner's answer and your feedback: no skill loads, no file reads or writes, no DB updates. The rules above are everything you need for feedback. Keep a running tally in your head of scores, errors (with category and severity), review results and new vocabulary. The conversation itself is the record. Everything is saved once, at the end, in the background (see "Session end" below).
+
+**Session end: summary first, then save in the background.**
+
+1. Show the closing summary right away, in the target language. Work out the streak yourself rather than waiting for the DB:
+   - last session yesterday → +1
+   - already practiced today → unchanged (minimum 1)
+   - otherwise → 1
+2. In the same response, start **one** background agent with the Agent tool, `subagent_type: "fork"`. A fork inherits this conversation, so it already has every answer. Tell it to:
+   - build the `update-db.py` payload as described in the `fluent-db-updater` skill and run it
+   - on a validation error, fix the payload and retry
+   - write the results file named in this skill, in English
+   - reply with one line, and never address the learner
+
+   Then end your turn without waiting for it.
+3. When the agent's completion notification arrives, reply with one short line in English (e.g. `💾 Progress saved.`), or tell the learner what failed.
+4. If the Agent tool isn't available, do the same steps yourself, after the summary has been shown.
+5. If the learner starts a new session before that notification arrives, wait for it before running `read-db.py`.
 
 ## Overview
 
@@ -90,15 +135,20 @@ Rotate the three modes so the session is not monotonous.
 
 ### 4. Feedback after each answer
 
-Use the `fluent-feedback-formatter` skill's template. Score out of 10, tag severity.
+Use the compact Session Rules format. For a single word, that's usually one line:
 
-Track the answer for the end-of-session DB update:
+- Correct: `✅ 10/10`
+- Wrong: `❌ 3/10 → **das Fenster** 🟡 (die Tür = door)`, a hint of 8 words or fewer
 
-- Add to `review_results[]` with `quality = floor(score / 2)` (see `fluent-sm2-calculator` skill).
+Then the next word, in the same message.
+
+Keep a running tally for the end-of-session save (no tool calls):
+
+- Add to `review_results[]` with `quality = floor(score / 2)` (`update-db.py` does the SM-2 math, so there's nothing to compute now).
 - If the learner met a new word, stage it for `new_vocabulary[]`.
 - If the learner made an error, stage it for `errors[]`.
 
-Do **not** call `update-db.py` after every word — batch at session end.
+Do **not** call `update-db.py` after every word. Everything is saved once, in the background, at session end.
 
 ### 5. Session summary
 
@@ -122,7 +172,7 @@ Do **not** call `update-db.py` after every word — batch at session end.
 
 ### 6. Update all databases
 
-Call the `fluent-db-updater` skill's workflow — one `update-db.py` invocation with:
+Save in the background, following Session Rules → "Session end". The fork makes one `update-db.py` call with:
 
 - `session_id`, `date`, `duration_minutes`
 - `command_used: "/fluent-vocab"`
@@ -130,6 +180,8 @@ Call the `fluent-db-updater` skill's workflow — one `update-db.py` invocation 
 - `skill_scores.vocabulary`: `{exercises, correct, time_minutes}`
 - `errors[]`, `new_vocabulary[]`, `review_results[]` collected during the session
 - `focus_next_session[]` — top 2-3 weak words
+
+Results file: `/results/fluent-vocab-session-{NNN}.md`.
 
 ## Examples
 
@@ -141,58 +193,51 @@ Call the `fluent-db-updater` skill's workflow — one `update-db.py` invocation 
 >
 > **Context:** "De keuken is klein maar mooi."
 >
-> **What does it mean in English?**
->
-> Type your answer:
+> **Wat betekent dit in het Engels?**
 
 Learner: "the kitchen"
 
-> ✅ Exactly.
+> ✅ 10/10
 >
-> **Answer:** the kitchen
-> **Meaning:** A room used for cooking and food preparation.
-> **Example:** "De keuken is klein maar mooi." (The kitchen is small but pretty.)
->
-> **Score: 10/10** 🎯
->
-> ---
+> ## Woord 2/15
+> …
 
 ### Example 2 — production with error
 
 > ## Word 7/15
 >
-> **English:** to write
+> **Engels:** to write
 >
-> **How do you say this in Dutch?**
+> **Hoe zeg je dit in het Nederlands?**
 
-Learner: "schrijven"
+Learner: "schrieven"
 
-> ✅ Correct — infinitive form.
+> ❌ 6/10 → **schrijven** 🟢 *ij*, niet *ie*
 >
-> Now: can you also give the first-person present? (I write → …)
+> ## Woord 8/15
+> …
 
-### Example 3 — session end summary
+### Example 3 — session end summary (rendered in the target language)
 
-> ## 📚 Vocabulary Session Complete!
+> ## 📚 Woordenschat klaar!
 >
-> **Words Reviewed:** 15
-> **Accuracy:** 80% (12/15)
-> **New Words Learned:** 3
-> **Words Mastered:** 1
+> **Woorden herhaald:** 15 · **Score:** 80% (12/15) · **Nieuw:** 3 · **Beheerst:** 1
 >
-> **Need more practice:** de sleutel, het raam, gisteren
+> **Nog oefenen:** de sleutel, het raam, gisteren
 >
-> **Next review:** Tomorrow 4 words, this week 8 words.
+> **Volgende herhaling:** morgen 4 woorden, deze week 8.
 >
 > Goed gedaan! 🌟
+
+Then the background save, then `💾 Progress saved.` once the fork reports back.
 
 ## Critical Rules
 
 - **One word at a time.** Wait for the learner's answer before showing the next.
-- **Immediate feedback** after each — use `fluent-feedback-formatter`.
+- **Immediate, compact feedback** after each answer (Session Rules format), with no tool calls in between.
 - **Mix modes.** Don't drill 20 recognition prompts in a row — interleave for discrimination.
-- **Use target language** for greetings + transitions when the learner is B1+; for A1-A2 mix target + native.
-- **Never** update the DBs mid-session — batch at end.
+- **Use the target language** for everything (see Session Rules). At A1-A2, add short native-language glosses.
+- **Never** update the DBs mid-session. A background fork saves everything at the end.
 - **Never auto-invoke.** This skill is gated; must fire only on explicit `/fluent-vocab`.
 
 ## Tips for the Learner (append if they seem tired or unsure)

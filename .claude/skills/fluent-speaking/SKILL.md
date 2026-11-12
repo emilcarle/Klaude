@@ -1,11 +1,56 @@
 ---
 name: fluent-speaking
 description: Run an interactive typed conversation session simulating spoken practice — free-flowing dialogue, role-plays, and opinion questions prioritizing communication over perfect grammar. Triggered only when the learner types /fluent-speaking. Asks questions one at a time in the target language, evaluates clarity and naturalness first and grammar second, and updates all databases at the end.
-allowed-tools: Read, Write, Bash
+allowed-tools: Read, Write, Bash, Agent
 disable-model-invocation: true
 ---
 
 # Speaking Practice (Typed)
+
+## Session Rules (apply to every turn of this skill)
+
+**Language: target language only.** From the greeting to the closing summary, speak the learner's target language (`learner.target_language`). That covers instructions, exercise prompts, feedback, explanations, transitions and the summary. The templates in this file are written in English so they're easy to read. Render them in the target language. Exceptions:
+- Source sentences in translation exercises (native → target) stay in the native language.
+- If the learner asks for an explanation in English, give it briefly, then continue in the target language.
+- At A1–A2, keep the language simple and add a short native-language gloss in parentheses wherever an instruction might not be understood.
+
+Once the closing summary is shown, the session is over: switch back to English.
+
+**Feedback: as short as possible.** Every feedback message must be as brief as it can be while still getting the correction across:
+
+```markdown
+❌ 4/10
+- ~~Wir muss~~ → **Wir müssen** 🔴 *wir* → Pluralform
+- ~~zu nächsten Woche~~ → **auf nächste Woche** 🟡 verschieben auf + Akk.
+➡️ Wir müssen die Besprechung auf nächste Woche verschieben.
+```
+
+- **First line:** ✅ or ❌, the score out of 10, and at most 6 words of comment.
+- **One line per error:** wrong → right, a severity tag (🔴 critical / 🟡 moderate / 🟢 minor), and the reason in 8 words or fewer. Track the category (grammar, prepositions, …) for yourself; don't print it.
+- **➡️ Correct version:** add it only when there were errors. If the answer is fully correct, the first line is the whole feedback.
+- **Leave out** praise lists, headings, `---` separators, bonus tips and running-accuracy notes. One short ✅ note is allowed when the learner gets right a pattern they missed earlier.
+- **After a 🔴 error,** ask for a retype in one line (e.g. `🔁 Bitte abtippen.`).
+- **Longer explanations** only when the learner asks for one (*warum?*).
+- **Same message:** put the next exercise right after the feedback.
+
+**Speed: no bookkeeping mid-session.** Make no tool calls between the learner's answer and your feedback: no skill loads, no file reads or writes, no DB updates. The rules above are everything you need for feedback. Keep a running tally in your head of scores, errors (with category and severity), review results and new vocabulary. The conversation itself is the record. Everything is saved once, at the end, in the background (see "Session end" below).
+
+**Session end: summary first, then save in the background.**
+
+1. Show the closing summary right away, in the target language. Work out the streak yourself rather than waiting for the DB:
+   - last session yesterday → +1
+   - already practiced today → unchanged (minimum 1)
+   - otherwise → 1
+2. In the same response, start **one** background agent with the Agent tool, `subagent_type: "fork"`. A fork inherits this conversation, so it already has every answer. Tell it to:
+   - build the `update-db.py` payload as described in the `fluent-db-updater` skill and run it
+   - on a validation error, fix the payload and retry
+   - write the results file named in this skill, in English
+   - reply with one line, and never address the learner
+
+   Then end your turn without waiting for it.
+3. When the agent's completion notification arrives, reply with one short line in English (e.g. `💾 Progress saved.`), or tell the learner what failed.
+4. If the Agent tool isn't available, do the same steps yourself, after the summary has been shown.
+5. If the learner starts a new session before that notification arrives, wait for it before running `read-db.py`.
 
 ## Overview
 
@@ -75,7 +120,7 @@ B1+: opinions, comparisons, hypotheticals, complaints, narratives.
 **Type your answer in {target_language}:**
 ```
 
-Build the conversation naturally — after 3-4 Qs on one topic, transition: `Interessant! Let's talk about something else...`.
+Build the conversation naturally. After 3-4 questions on one topic, move on with a one-line transition in the target language (e.g. `Interessant! Lass uns über etwas anderes sprechen …`).
 
 ### 5. Evaluate
 
@@ -85,31 +130,18 @@ Check in this order:
 2. **Grammar** (0-3 points): verb conjugation, word order, articles. Note but don't belabor.
 3. **Vocabulary** (0-2 points): appropriate word choice, no English mixing.
 
-Feedback template (variant of `fluent-feedback-formatter`):
+Use the compact Session Rules format, adjusted for conversation. Write it in the target language:
 
 ```markdown
-{✅ or 🟡} {one-line encouragement}
+✅ {X}/10 · Communication {Y}/5 · Grammar {Z}/3 · Vocabulary {W}/2
+- ~~{wrong}~~ → **{correct}** 🟡 {reason, 8 words or fewer}
+💬 {more natural phrasing, one line, optional}
 
-**What you said:**
-"{their_answer}"
-
-**Communication:** {Clear / Mostly clear / Unclear} ✅
-
-**Grammar notes:** (secondary — don't over-focus)
-- {major error → correction, only if communication-blocking}
-
-**Natural alternative:**
-You could also say: "{more_natural_phrasing}"
-
-**Score: {X}/10**
-- Communication: {Y}/5
-- Grammar: {Z}/3
-- Vocabulary: {W}/2
-
-{encouragement}
-
----
+{your next conversational turn / question}
 ```
+
+- **At most 2 correction lines,** and only for errors that matter. Don't echo the learner's answer back.
+- **Keep the conversation going** in the same message. The feedback is a short aside, not the main event.
 
 ### 6. Role-play (advanced)
 
@@ -118,7 +150,7 @@ For B1+ or when the learner is warmed up:
 ```markdown
 ## 🎭 Role-Play
 
-**Scenario:** {description in native language}
+**Scenario:** {description, in the target language}
 **Your role:** {what the learner plays}
 **I'll be:** {what Claude plays}
 
@@ -158,14 +190,14 @@ Ready? I'll start...
 
 ### 8. Update all databases
 
-Use the `fluent-db-updater` skill:
+Save in the background, following Session Rules → "Session end". The fork's payload:
 
 - `command_used: "/fluent-speaking"`, `skills_practiced: ["speaking"]`
 - `skill_scores.speaking: {exercises: N, correct: count_of_clear_answers, time_minutes}`
 - `errors[]` — only communication-blocking ones (don't flood mistakes-db with minor speaking slips)
 - `focus_next_session[]` — one topic + one pattern
 
-Save exchange to `/results/fluent-speaking-session-{NNN}.md`.
+Results file: `/results/fluent-speaking-session-{NNN}.md`.
 
 ## Examples
 
@@ -178,32 +210,19 @@ Save exchange to `/results/fluent-speaking-session-{NNN}.md`.
 
 Learner: "Ik ben Mohammad. Ik kom van Iran maar ik woon nu in Nederland."
 
-> ✅ Clear and natural!
+> ✅ 9/10 · Communicatie 5/5 · Grammatica 2/3 · Woordenschat 2/2
+> - ~~van Iran~~ → **uit Iran** 🟢 herkomst = uit
+> 💬 Ik kom uit Iran, maar ik woon al een paar jaar in Nederland.
 >
-> **What you said:** "Ik ben Mohammad. Ik kom van Iran maar ik woon nu in Nederland."
->
-> **Communication:** Clear ✅
->
-> **Grammar notes:**
-> - 🟢 "van Iran" → **"uit Iran"** (prepositions — origin uses `uit`, not `van`). Small slip; message still crystal clear.
->
-> **Natural alternative:**
-> "Ik kom uit Iran, maar ik woon al een paar jaar in Nederland."
->
-> **Score: 9/10**
-> - Communication: 5/5
-> - Grammar: 2/3
-> - Vocabulary: 2/2
->
-> Great start — you packed two ideas into one sentence, which is exactly what fluency looks like.
+> Leuk! Hoe lang woon je al in Nederland? (How long have you lived in the Netherlands?)
 
 ### Example 2 — role-play opener (café scenario)
 
 > ## 🎭 Role-Play
 >
-> **Scenario:** You're at a café in Amsterdam. You want coffee and a vegetarian option for lunch.
-> **Your role:** Customer
-> **I'll be:** The server
+> **Situatie:** Je zit in een café in Amsterdam. Je wilt koffie en iets vegetarisch voor de lunch.
+> **Jouw rol:** klant
+> **Ik ben:** de ober
 >
 > ---
 >
@@ -215,7 +234,7 @@ Learner: "Ik ben Mohammad. Ik kom van Iran maar ik woon nu in Nederland."
 
 - **Communication first.** A clear message with a missed article scores better than a grammatically perfect but confusing answer.
 - **One question at a time.** Wait for reply before next.
-- **Stay in the target language** for questions and transitions. Drop to native only for explanations.
+- **Stay in the target language** for everything, explanations included (see Session Rules). Use English only if the learner asks for it.
 - **Praise natural expression.** If the learner uses "Nou..." or "Eh..." correctly, call it out — those are fluency markers.
 - **Don't over-correct.** A speaking session with 20 red marks kills confidence.
 - **Never auto-invoke.** Gated; must fire only on explicit `/fluent-speaking`.

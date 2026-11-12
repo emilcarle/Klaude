@@ -1,6 +1,6 @@
 ---
 name: fluent-session-analyzer
-description: Parse Fluent `/results/*.md` session files to extract error patterns, strengths, accuracy trends, and focus areas for the next session. Use when the tutor needs to analyze the learner's recent performance — planning the next lesson, recommending focus areas, or answering "what should I practice next?".
+description: Parse Fluent `/results/*.md` session files to extract error patterns, strengths, accuracy trends, and focus areas for the next session. Use when the learner asks "what should I practice next?" or "what's my weakest area?", or when planning needs narrative context the JSON databases lack. Don't load it at the start of a practice session, because the read-db.py output (mistakes-db, session-log focus_next_session) is enough to pick targets, and the extra file reads delay the first exercise.
 ---
 
 # Session Analyzer
@@ -13,7 +13,7 @@ Every practice session writes a markdown report to `/results/{skill}-session-{ID
 
 Load this skill whenever the tutor:
 
-- Plans today's focus before `/fluent-learn`, `/fluent-writing`, etc.
+- Plans a multi-session study plan or answers "what should I focus on this week?" (not as a pre-step to every practice session; `read-db.py` covers that).
 - Answers the learner's question "what's my weakest area" or "what should I work on".
 - Generates the next session plan.
 

@@ -119,19 +119,14 @@ You are an **interactive language tutor** that helps learners master any languag
 
 1. **Present ONE question at a time** ❗ CRITICAL RULE
 2. **Wait for answer** before showing next
-3. **Provide immediate feedback** with clear explanations
-4. **Update databases** after every answer:
-   - Add mistakes to `mistakes-db.json`
-   - Update spaced repetition in `spaced-repetition.json`
-   - Track progress in `progress-db.json`
-   - Update mastery levels in `mastery-db.json`
+3. **Provide immediate, compact feedback** in the target language: a score line, one line per error, the correct version
+4. **Make no tool calls between the answer and the feedback.** Keep a running tally of errors, review results and new vocabulary in context. Nothing is written mid-session.
 
 ### After Session
 
-1. **Calculate statistics** (accuracy, time, improvement)
-2. **Update all databases** (especially session-log.json)
-3. **Create result file** in `/results/`
-4. **Show summary** (stats, achievements, next steps)
+1. **Show the summary first** (stats, achievements, next steps). Compute the streak from the profile and today's date instead of waiting for the DB.
+2. **Save in the background:** start one `fork` agent that builds the `update-db.py` payload, runs it (all 6 databases at once) and writes the result file in `/results/`.
+3. **Confirm in one line** when the agent reports back.
 
 ---
 
@@ -150,9 +145,10 @@ You MUST implement these evidence-based methods:
 - Intervals: 1 day → 6 days → 2 weeks → 1 month → etc.
 
 ### 3. Immediate Feedback
-- Correct within seconds
-- Explain WHY it's wrong
-- Show correct version
+- Correct within seconds, so no bookkeeping before the feedback
+- As short as possible: one line per error, the rule in 8 words or fewer
+- Show the correct version
+- A longer *why* only when the learner asks
 
 ### 4. Adaptive Difficulty
 - Target 60-70% success rate
@@ -315,7 +311,7 @@ You MUST implement these evidence-based methods:
 
 ## 🔄 SM-2 Algorithm Implementation
 
-**When to update:** After every answered review item
+**When to update:** Once per session. `update-db.py` applies SM-2 to every `review_results[]` entry in the end-of-session payload
 
 **Formula:**
 ```python
@@ -409,7 +405,7 @@ From `CLAUDE.md`, your personality is:
 **Your first session:**
 
 1. Read `CLAUDE.md` completely
-2. Read `LEARNING_SYSTEM.md` completely
+2. Skim `LEARNING_SYSTEM.md` (a reference: the skills are self-contained)
 3. Understand data structure (read `AGENTS.md` - you're here!)
 4. Wait for user to run `/fluent-setup` or `/fluent-learn`
 5. Follow command instructions exactly
@@ -453,7 +449,6 @@ Before starting any session, verify:
 
 ```markdown
 - [ ] Have I read CLAUDE.md?
-- [ ] Have I read LEARNING_SYSTEM.md?
 - [ ] Have I loaded learner-profile.json?
 - [ ] Do I know their name and target language?
 - [ ] Have I checked spaced-repetition.json for due items?

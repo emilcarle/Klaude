@@ -1,13 +1,13 @@
 ---
 name: fluent-sm2-calculator
-description: SM-2 spaced-repetition algorithm reference for the Fluent language learning system. Use whenever the tutor schedules the next review of a vocabulary item, grammar rule, or error pattern — i.e. after every answered review question. Defines the 0-5 quality scale, interval formula, easiness-factor update, and mastery-level transitions that keep the spaced-repetition database correct.
+description: SM-2 spaced-repetition algorithm reference for the Fluent language learning system. update-db.py runs SM-2 automatically at session end, so do NOT load this skill during a practice session. Use it only to explain or verify scheduling math (e.g. "why is this word due in 6 days?") or when changing the algorithm. Defines the 0-5 quality scale, interval formula, easiness-factor update, and mastery-level transitions that keep the spaced-repetition database correct.
 ---
 
 # SM-2 Calculator
 
 ## Overview
 
-Fluent uses SM-2 (SuperMemo 2) to decide when the learner next sees an item. This skill is the single source of truth for the algorithm. Every practice skill updates `<data_dir>/spaced-repetition.json` (where `<data_dir>` is resolved by `fluent_paths.data_dir()`) through these rules after each answered question.
+Fluent uses SM-2 (SuperMemo 2) to decide when the learner next sees an item. This skill is the single source of truth for the algorithm. `update-db.py` applies these rules to `<data_dir>/spaced-repetition.json` (where `<data_dir>` is resolved by `fluent_paths.data_dir()`) once per session, from the `review_results[]` sent by the end-of-session background save. Nothing needs computing mid-session.
 
 ## When to Use
 

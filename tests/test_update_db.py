@@ -236,6 +236,25 @@ class UpdateDbSmokeTest(unittest.TestCase):
             profile = json.load(f)
         self.assertEqual(profile["current_streak_days"], 2)
 
+    def test_first_session_on_setup_day_starts_streak_at_1(self):
+        # /fluent-setup writes last_updated=today with streak 0; the first
+        # session on the same day must start the streak instead of leaving 0.
+        profile_path = self.tmp / "data" / "learner-profile.json"
+        with open(profile_path) as f:
+            profile = json.load(f)
+        profile["current_streak_days"] = 0
+        profile["total_sessions"] = 0
+        with open(profile_path, "w") as f:
+            json.dump(profile, f)
+        payload = dict(SESSION_PAYLOAD)
+        payload["session_id"] = "session-001"
+        payload["date"] = "2026-04-23"  # same day as fixture last_updated
+        proc = self._run(payload)
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        with open(profile_path) as f:
+            profile = json.load(f)
+        self.assertEqual(profile["current_streak_days"], 1)
+
     # --- Milestones (issue #8) ---
 
     def _payload_with(self, session_id, milestones, date="2026-04-24"):

@@ -1,83 +1,73 @@
 # Feedback Template
 
-Canonical per-answer feedback format used by every Fluent practice skill. Referenced by the `fluent-feedback-formatter` skill.
+The compact per-answer feedback format used by every Fluent practice skill. The `fluent-feedback-formatter` skill and the Session Rules block in each practice skill both point here. Keep all three in sync.
 
-## Standard Template
+**Principle:** as short as possible while still getting the correction across. Write it in the target language.
+
+## Template
 
 ```markdown
-{✅ or ❌} {one-line encouragement or gentle correction}
+❌ {X}/10 {optional comment, 6 words or fewer}
+- ~~{wrong}~~ → **{correct}** {🔴|🟡|🟢} {reason, 8 words or fewer}
+➡️ {full correct version}
 
-**Corrections:**
-- ❌ "{wrong_part}" → **"{correct_part}"** ({category} — {brief_why})
-- ✅ "{correct_part}" — {specific_praise}
-
-**Correct version:**
-"{full_correct_sentence}"
-
-**Score: {X}/10** {emoji} {short_comment}
-
----
+{next exercise}
 ```
 
-Skip the ❌ block if the answer is fully correct. Skip the ✅ block only if truly nothing was right.
+- Fully correct → `✅ {X}/10` and nothing else.
+- Single-word answers → `❌ 3/10 → **{correct}** 🟡 {hint}`.
+- Long texts → at most 8 error lines, 🟢 slips merged into one line, then the corrected text in a code block. Breakdown goes on the score line.
+- After a 🔴 error → `🔁 Bitte abtippen.` (in the target language).
+- No headings, separators, praise lists or paragraphs. A longer explanation only when asked.
 
 ## Severity markers
 
-| Symbol | Severity | Meaning | Example |
-|--------|----------|---------|---------|
-| 🔴 | Critical | Breaks communication or exam-blocker | Formal/informal mix in formal email; wrong subordinate-clause word order |
-| 🟡 | Moderate | Noticeable but understandable | Preposition error, missing article |
-| 🟢 | Minor | Low priority | Spelling, punctuation, accent marks |
+| Symbol | Severity | Meaning |
+|--------|----------|---------|
+| 🔴 | Critical | Breaks communication or an exam-blocker |
+| 🟡 | Moderate | Noticeable but understandable |
+| 🟢 | Minor | Spelling, punctuation, capitalization |
 
-A single answer may contain multiple errors of different severity — tag each.
+## Category labels (tracked for the DB payload, not printed)
 
-## Category labels
+`grammar`, `formal_informal`, `vocabulary`, `spelling`, `prepositions`, `articles`, `missing`
 
-These feed `mistakes-db.json`:
+## Examples (German B2)
 
-- `grammar` — word order, conjugation, clause structure
-- `formal_informal` — u/je, uw/jouw, register mismatch
-- `vocabulary` — wrong word, English mixing, register-wrong synonym
-- `spelling` — minor
-- `prepositions` — om/op/in/bij/naar/etc.
-- `articles` — de/het, definite/indefinite
-- `missing` — omitted greeting, closing, required word
+### Fully correct
 
-## Tone rules
+> ✅ 10/10 — Verb am Ende, perfekt.
+>
+> **Übung 4:** …
 
-- Encourage before correcting — open with a ✅ or a warm ❌, not a bare "Wrong."
-- Explain why, not just what — "Ik schrijf je" → "Ik schrijf u" (formal_informal — business emails require u)
-- Name the pattern so the learner generalizes
-- Celebrate progress — "You didn't miss this last time"
-- Emojis on (learner default: `use_emojis: true`)
+### Several errors
 
-## Examples
+Learner: "Wir muss die Treffung zu nächsten Woche verschieben."
 
-### Mostly correct
+> ❌ 4/10
+> - ~~Wir muss~~ → **Wir müssen** 🔴 *wir* → Pluralform
+> - ~~Treffung~~ → **Besprechung** 🟡 kein deutsches Wort
+> - ~~zu nächsten Woche~~ → **auf nächste Woche** 🟡 verschieben auf + Akk.
+> ➡️ Wir müssen die Besprechung auf nächste Woche verschieben.
+>
+> 🔁 Bitte abtippen.
 
-> ✅ Nice — past tense is solid.
+### Progress callout
+
+> ✅ 9/10 — *sich freuen darauf, …* sitzt jetzt!
+> - ~~Grüssen,~~ → **Grüßen** 🟢 ß in DE, kein Komma
+
+### Previous (verbose) style: don't do this
+
+> ❌ Good start: you picked the right verb and put it in the right place. Three small things to fix.
 >
 > **Corrections:**
-> - 🟢 "gestern" → **"hier"** (vocabulary — small slip, you used the German word)
-> - ✅ "Ik ben gegaan" — perfect auxiliary + participle
+> - ❌ "Wir **muss**" → **"Wir müssen"** 🔴 (grammar: with *wir*, modal verbs take the plural form: ich muss, du musst, er muss, **wir müssen**, ihr müsst, sie müssen)
+> - …4 more lines of this length…
 >
-> **Correct version:**
-> "Ik ben hier naar de markt gegaan."
+> **Correct version:** …
 >
-> **Score: 9/10** 🎯 One minor swap — don't sweat it.
-
-### Critical error
-
-> ❌ Close, but one pattern is costing you points on the exam.
->
-> **Corrections:**
-> - 🔴 "Ik schrijf je omdat ik heb een vraag" → **"Ik schrijf u omdat ik een vraag heb"** (formal_informal + grammar — formal register needs "u", and "omdat" pushes the verb to the end)
-> - ✅ "Ik schrijf" — correct opening verb
->
-> **Correct version:**
-> "Ik schrijf u omdat ik een vraag heb."
->
-> **Score: 5/10** 💪 Two patterns to drill — both fixable.
+> **Score: 4/10** 🌱 The sentence structure is solid. The mistakes are in conjugation, word choice and preposition, which is very fixable.
 
 ## Score → SM-2 Quality
 

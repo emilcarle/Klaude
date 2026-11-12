@@ -1,13 +1,15 @@
 ---
 name: fluent-db-updater
-description: Atomically update all 6 Fluent learner databases (learner-profile, progress, mistakes, mastery, spaced-repetition, session-log) at session end by calling .claude/hooks/update-db.py with a single JSON payload. Use at the end of every practice session — fluent-writing, fluent-vocab, fluent-speaking, fluent-reading, fluent-review, fluent-learn — to persist the session's errors, review results, new vocabulary, and session metadata.
+description: Atomically update all 6 Fluent learner databases (learner-profile, progress, mistakes, mastery, spaced-repetition, session-log) at session end by calling .claude/hooks/update-db.py with a single JSON payload. Used by the background fork agent that every practice skill (fluent-writing, fluent-vocab, fluent-speaking, fluent-reading, fluent-review, fluent-learn) starts after showing the closing summary, to persist the session's errors, review results, new vocabulary, session metadata and the results file.
 ---
 
 # DB Updater
 
 ## Overview
 
-Every practice skill ends with a DB update. Instead of hand-editing 6 JSON files (error-prone, racy, easy to desync), pipe one JSON report to `update-db.py`. The script runs pre-write backups, validates the payload, applies all changes atomically via `.tmp + fsync + rename`, and rebuilds the spaced-repetition queue.
+Every practice skill ends with a DB update. It runs **in the background**: the tutor shows the closing summary first, then starts a `fork` agent (which inherits the whole conversation) to build this payload, run the script and write the `/results` file. The learner never waits on bookkeeping. If you are that fork, work silently, don't address the learner, and finish with a one-line report (`saved session-NNN` or the error).
+
+Instead of hand-editing 6 JSON files (error-prone, racy, easy to desync), pipe one JSON report to `update-db.py`. The script runs pre-write backups, validates the payload, applies all changes atomically via `.tmp + fsync + rename`, and rebuilds the spaced-repetition queue.
 
 ## When to Use
 
@@ -133,9 +135,9 @@ EOF
 
 ## Critical Rules
 
-- **Call once per session, at the end.** The script rebuilds the review queue each run — partial updates risk inconsistency.
+- **Call once per session, at the end, from the background fork.** The script rebuilds the review queue on every run, so partial updates risk inconsistency. It is not incremental either: every call increments `total_sessions` and the minutes, so don't use it for mid-session checkpoints.
 - **Never hand-edit `spaced-repetition.review_queue`.** It's regenerated from scratch on every run.
-- **Same `session_id` replaces.** Sending the same ID twice overwrites the first call. Useful for corrections, dangerous if unintentional.
+- **Don't resend a session.** The script isn't idempotent. Sending the same `session_id` twice appends a second session-log entry and double-counts every total. To correct a mistake, restore from `.backups/pre-update-<session_id>/` and resend.
 - **Backups are automatic.** Written to `.backups/pre-update-<session_id>/` before any change. Check there to roll back.
 - **Exit code 1 means validation failed, no files touched.** Fix the payload and retry.
 - **Exit code 2 means I/O failure, no files touched.** Check disk space, permissions, then retry.

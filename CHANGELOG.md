@@ -2,6 +2,37 @@
 
 All notable changes to Fluent will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **Compact feedback.** Per-answer feedback is now a score line, one line per
+  error (wrong → right, severity, rule in 8 words or fewer) and the correct
+  version, with the next exercise in the same message. Headings, praise lists
+  and long explanations are gone; the learner can ask *warum?* for details.
+  The six practice skills embed the template, `fluent-feedback-formatter`
+  and `references/feedback-template.md` were rewritten, and the writing,
+  speaking, reading, vocab and review variants were shortened to match.
+- **Session language.** Practice skills (`/fluent-learn`, `-vocab`,
+  `-writing`, `-speaking`, `-reading`, `-review`) run entirely in the target
+  language, from the greeting to the closing summary. Outside a practice
+  skill (general chat, `/fluent-setup`, `/fluent-progress`) Claude speaks
+  English. Results files and DB payloads stay in English.
+- **Faster turns.** No tool calls between an answer and its feedback, and no
+  helper-skill loads mid-session: results are tallied in context. At session
+  end the summary is shown first, then a background `fork` agent runs
+  `update-db.py` and writes the `/results` file, so the learner never waits
+  on bookkeeping. `CLAUDE.md` no longer requires reading `LEARNING_SYSTEM.md`
+  at every session start, and the helper-skill descriptions now say not to
+  load them mid-session.
+
+### Fixed
+
+- `update-db.py`: the first session on the same day as `/fluent-setup` left
+  the streak at 0. A session today now always means a streak of at least 1.
+- `fluent-db-updater` docs claimed resending a `session_id` replaces the
+  earlier call. It actually appends and double-counts; the docs now say so.
+
 ## [0.3.0] — 2026-06-15
 
 ### Added

@@ -1,11 +1,56 @@
 ---
 name: fluent-review
 description: Run today's spaced-repetition review queue — items scheduled by SM-2 that need reinforcement before the learner forgets them. Triggered only when the learner types /fluent-review. Pulls due items from spaced-repetition.review_queue.today, generates a targeted exercise for each, evaluates the response, updates SM-2 parameters, and reshelves items into the correct future queue.
-allowed-tools: Read, Write, Bash
+allowed-tools: Read, Write, Bash, Agent
 disable-model-invocation: true
 ---
 
 # Spaced-Repetition Review Session
+
+## Session Rules (apply to every turn of this skill)
+
+**Language: target language only.** From the greeting to the closing summary, speak the learner's target language (`learner.target_language`). That covers instructions, exercise prompts, feedback, explanations, transitions and the summary. The templates in this file are written in English so they're easy to read. Render them in the target language. Exceptions:
+- Source sentences in translation exercises (native → target) stay in the native language.
+- If the learner asks for an explanation in English, give it briefly, then continue in the target language.
+- At A1–A2, keep the language simple and add a short native-language gloss in parentheses wherever an instruction might not be understood.
+
+Once the closing summary is shown, the session is over: switch back to English.
+
+**Feedback: as short as possible.** Every feedback message must be as brief as it can be while still getting the correction across:
+
+```markdown
+❌ 4/10
+- ~~Wir muss~~ → **Wir müssen** 🔴 *wir* → Pluralform
+- ~~zu nächsten Woche~~ → **auf nächste Woche** 🟡 verschieben auf + Akk.
+➡️ Wir müssen die Besprechung auf nächste Woche verschieben.
+```
+
+- **First line:** ✅ or ❌, the score out of 10, and at most 6 words of comment.
+- **One line per error:** wrong → right, a severity tag (🔴 critical / 🟡 moderate / 🟢 minor), and the reason in 8 words or fewer. Track the category (grammar, prepositions, …) for yourself; don't print it.
+- **➡️ Correct version:** add it only when there were errors. If the answer is fully correct, the first line is the whole feedback.
+- **Leave out** praise lists, headings, `---` separators, bonus tips and running-accuracy notes. One short ✅ note is allowed when the learner gets right a pattern they missed earlier.
+- **After a 🔴 error,** ask for a retype in one line (e.g. `🔁 Bitte abtippen.`).
+- **Longer explanations** only when the learner asks for one (*warum?*).
+- **Same message:** put the next exercise right after the feedback.
+
+**Speed: no bookkeeping mid-session.** Make no tool calls between the learner's answer and your feedback: no skill loads, no file reads or writes, no DB updates. The rules above are everything you need for feedback. Keep a running tally in your head of scores, errors (with category and severity), review results and new vocabulary. The conversation itself is the record. Everything is saved once, at the end, in the background (see "Session end" below).
+
+**Session end: summary first, then save in the background.**
+
+1. Show the closing summary right away, in the target language. Work out the streak yourself rather than waiting for the DB:
+   - last session yesterday → +1
+   - already practiced today → unchanged (minimum 1)
+   - otherwise → 1
+2. In the same response, start **one** background agent with the Agent tool, `subagent_type: "fork"`. A fork inherits this conversation, so it already has every answer. Tell it to:
+   - build the `update-db.py` payload as described in the `fluent-db-updater` skill and run it
+   - on a validation error, fix the payload and retry
+   - write the results file named in this skill, in English
+   - reply with one line, and never address the learner
+
+   Then end your turn without waiting for it.
+3. When the agent's completion notification arrives, reply with one short line in English (e.g. `💾 Progress saved.`), or tell the learner what failed.
+4. If the Agent tool isn't available, do the same steps yourself, after the summary has been shown.
+5. If the learner starts a new session before that notification arrives, wait for it before running `read-db.py`.
 
 ## Overview
 
@@ -93,27 +138,19 @@ Present one at a time:
 
 ### 4. Evaluate + update SM-2
 
-Use the `fluent-feedback-formatter` skill for per-answer feedback.
+Give feedback in the compact Session Rules format, then the next item in the same message. No tool calls in between.
 
-Then stage the item for the end-of-session update. Do NOT hand-edit `spaced-repetition.json` — use `review_results[]` in the `fluent-db-updater` payload:
+Keep a running tally of each item for the end-of-session save. Do NOT hand-edit `spaced-repetition.json`. The background fork sends `review_results[]` in the `fluent-db-updater` payload:
 
 ```json
 { "item_id": "vocab_huis", "quality": 4 }
 ```
 
-The `update-db.py` script runs the SM-2 math (see `fluent-sm2-calculator` skill) and rebuilds the queue. Mapping: `quality = floor(score / 2)`.
+The `update-db.py` script runs the SM-2 math and rebuilds the queue. Don't load `fluent-sm2-calculator` mid-session. Mapping: `quality = floor(score / 2)`.
 
 ### 5. Progress pulse every 5 items
 
-```markdown
-## Progress Update
-
-**Reviewed:** {N}/{total}
-**Accuracy:** {percent}%
-**Time Remaining:** ~{min} min
-
-Keep going! 💪
-```
+One line, in the target language, before the next item: `📊 {N}/{total} · {percent}% · noch ~{min} Min.`
 
 ### 6. Session summary
 
@@ -144,7 +181,7 @@ Keep going! 💪
 
 ### 7. Update all databases
 
-Use the `fluent-db-updater` skill:
+Save in the background, following Session Rules → "Session end". The fork's payload:
 
 - `command_used: "/fluent-review"`, `skills_practiced: [derived from reviewed items]`
 - `skill_scores` — aggregate per skill touched
@@ -152,7 +189,7 @@ Use the `fluent-db-updater` skill:
 - `errors[]` — only patterns where the learner got it wrong (bumps frequency)
 - `focus_next_session[]` — the 2-3 items with lowest quality this session
 
-Save exchange to `/results/fluent-review-session-{NNN}.md` for later analysis.
+Results file: `/results/fluent-review-session-{NNN}.md`.
 
 ## Examples
 
@@ -166,21 +203,16 @@ Save exchange to `/results/fluent-review-session-{NNN}.md` for later analysis.
 >
 > **Dutch:** het raam
 >
-> **What does it mean in English?**
+> **Wat betekent dit in het Engels?**
 
 Learner: "the door"
 
-> ❌ Close — those are both openings in a wall, but not the same.
+> ❌ 3/10 → **the window** 🟡 (de deur = the door)
 >
-> **Corrections:**
-> - 🟡 "the door" → **"the window"** (vocabulary — `het raam` is window; `de deur` is door)
->
-> **Correct version:**
-> "het raam" = the window.
->
-> **Score: 3/10** 💪 Easy to mix — we'll review this again soon.
->
-> (Logged: `review_results[]` item quality=1 → `interval_days=1, repetitions=0`, stays in today's queue.)
+> ## Review 4/12 — 🟡
+> …
+
+(Tallied for the save: quality=1 → `interval_days=1, repetitions=0`. Nothing is printed to the learner.)
 
 ### Example 2 — correct answer with mastery bump
 
@@ -194,13 +226,12 @@ Learner: "the door"
 
 Learner: "niet"
 
-> ✅ Perfect — omdat-clause word order locked in.
+> ✅ 10/10 — omdat zit erin!
 >
-> **Answer:** "Ik schrijf u omdat ik niet kan komen."
->
-> **Score: 10/10** 🎯
->
-> (Logged: quality=5 → `interval_days = round(14 * EF)`, queue: `later`. `consecutive_correct` = 5, mastery → 5 ⭐⭐⭐⭐⭐.)
+> ## Review 8/12 — 🟢
+> …
+
+(Tallied for the save: quality=5 → `interval_days = round(14 * EF)`, queue: `later`. `consecutive_correct` = 5, mastery → 5 ⭐⭐⭐⭐⭐.)
 
 ## Critical Rules
 

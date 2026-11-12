@@ -187,7 +187,9 @@ def update_learner_profile(profile: dict, session: dict):
     last = profile.get("last_updated", "")
 
     if last == today:
-        pass
+        # Same day: don't bump, but a session today means the streak is at
+        # least 1 (e.g. /fluent-setup ran earlier today and left it at 0).
+        profile["current_streak_days"] = max(1, profile.get("current_streak_days", 0))
     elif last == yesterday(today):
         profile["current_streak_days"] = profile.get("current_streak_days", 0) + 1
     else:
